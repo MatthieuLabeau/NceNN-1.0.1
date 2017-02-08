@@ -17,25 +17,26 @@ class Options(object):
 
     #Data
     self.path = "./data/"
+    #self.path = "/vol/work2/labeau/lm/data/news/NceNN/"
     self.n = 3
     self.batch_size = 512
-    self.train_set = dataset(file_path=self.path, data_path='train', batch_size=self.batch_size, n=self.n + 1, vocab=None, threshold = 1)
+    self.train_set = dataset(file_path=self.path, data_path='train', batch_size=self.batch_size, n=self.n + 1, vocab=None, threshold = 5)
     self.test_set = dataset(file_path=self.path, data_path='test', batch_size=self.batch_size, n=self.n + 1, vocab=self.train_set.vocab)
     self.vocab_size = len(self.train_set.vocab)
     self.train_size = len(self.train_set.data)
     self.test_size = len(self.test_set.data)
     self.n_training_steps = self.train_size // self.batch_size
     self.n_testing_steps = self.test_size // self.batch_size
-    self.training_sub = 50
+    self.training_sub = 1000
 
     #Structural choices
     self.emb_dim = 50
     self.hidden_dim = 100
 
     #Hyperparameters
-    self.learning_rate = 0.005
+    self.learning_rate = 0.001
     self.lr_decay = 0.9
-    self.epochs = 500
+    self.epochs = 100
     self.dropout = 0.5
     self.reg = 0.00005
 
@@ -46,7 +47,7 @@ class Options(object):
 
     #NCE/Target
     if self.obj == 'nce' or self.obj == 'target':
-      self.k = 50
+      self.k = 100
       self.distortion = 1.0
       self.unique = True
       self.batchedNoise = False

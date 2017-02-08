@@ -15,6 +15,10 @@ import tensorflow as tf
 from nltk.util import ngrams
 from tensorflow.python.platform import gfile
 
+"""
+TODO: Preprocessing online - pour ne pas garder le corpus en memoire
+"""
+
 def _read_words(filename):
   with gfile.GFile(filename, "r") as f:
     return f.read().split()

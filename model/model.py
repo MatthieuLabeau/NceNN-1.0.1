@@ -95,20 +95,48 @@ class LM(object):
       sampled_losses = tf.nn.sigmoid_cross_entropy_with_logits(logits, labels_nce, name="nce_loss_2")
       positive_score = sampled_losses[:,0]
       true_loss = tf.reduce_mean(positive_score, name='true_mean')
+      nce_score = tf.nn._sum_rows(sampled_losses)
+      loss = tf.reduce_mean(nce_score, name='nce_mean')
     #Different noise samples for each batch
     else:
+      #Do a multinomial: batch_size * sampling of k instead of sampling of k * batch_size      
+      """
+      distrib = tf.cast(tf.tile(tf.expand_dims(self._options.noiseDistrib, 0), [self._options.batch_size, 1]), dtype='float32')
+      proba = tf.nn.log_softmax(tf.log(distrib))
+      samples = tf.multinomial(tf.log(distrib),
+                               self._options.k,
+                               name = 'nce_sampling')
+      print(samples.get_shape())
+      negative_samples = tf.reshape(samples, [self._options.k * self._options.batch_size])
+
+      labels_indexes = tf.transpose(tf.pack([tf.cast(tf.range(self._options.batch_size), dtype='int64'), labels]))
+      idx = tf.cast(tf.range(self._options.batch_size), dtype='int64')
+      idx = tf.reshape(idx, [-1, 1])
+      idx = tf.tile(idx, [1, self._options.k])
+      idx = tf.reshape(idx, [-1])
+      sampled_indexes = tf.transpose(tf.pack([idx, negative_samples]))
+      true_expected_counts = tf.scalar_mul(self._options.k, tf.exp(tf.expand_dims(tf.gather_nd(proba, labels_indexes), 1)))
+      #true_expected_counts = tf.exp(tf.expand_dims(tf.gather_nd(proba, labels_indexes), 1))
+      sampled_expected_counts = tf.scalar_mul(self._options.k, tf.exp(tf.gather_nd(proba, sampled_indexes)))
+      """
+      # Sample k * batch_size negative examples    
+      
       (negative_samples,
        true_expected_counts,
        sampled_expected_counts) = tf.nn.fixed_unigram_candidate_sampler(labels_ext,
                                                                         1,
                                                                         self._options.k * self._options.batch_size,
-                                                                        self._options.unique,
+                                                                        False,
+                                                                        #self._options.unique,
                                                                         self._options.vocab_size,
                                                                         distortion=self._options.distortion,
                                                                         num_reserved_ids=0,
                                                                         unigrams=self._options.noiseDistrib,
                                                                         name='nce_sampling')
-      true_expected_counts = tf.scalar_mul(1.0 / self._options.batch_size, true_expected_counts)
+      sampled_expected_counts = tf.scalar_mul(1.0 / self._options.batch_size, sampled_expected_counts)
+      
+      # And processing that goes with     
+      
       logits, labels_nce = tfutils._compute_sampled_logits_by_batch(tf.transpose(self._output_weights),
                                                                     self._output_biases,
                                                                     hidden,
@@ -121,13 +149,52 @@ class LM(object):
                                                                                      true_expected_counts,
                                                                                      sampled_expected_counts),
                                                                     subtract_log_q= True,
-                                                                    remove_accidental_hits = True,
                                                                     name='nce_loss_1_batched')      
       sampled_losses = tf.nn.sigmoid_cross_entropy_with_logits(logits, labels_nce, name="nce_loss_2_batched")
       positive_score = sampled_losses[:,0]
       true_loss = tf.reduce_mean(positive_score, name='true_mean')
-    nce_score = tf.nn._sum_rows(sampled_losses)
-    loss = tf.reduce_mean(nce_score, name='nce_mean')
+      nce_score = tf.nn._sum_rows(sampled_losses)
+      loss = tf.reduce_mean(nce_score, name='nce_mean')
+
+      # First implementation
+      """
+      acc_true_loss = tf.constant(0.)
+      acc_nce_loss = tf.constant(0.)
+      for i in xrange(self._options.batch_size):
+        (negative_samples,
+         true_expected_counts,
+         sampled_expected_counts) = tf.nn.fixed_unigram_candidate_sampler(tf.expand_dims(labels_ext[i], 0),
+                                                                          1,
+                                                                          self._options.k,
+                                                                          self._options.unique,
+                                                                          self._options.vocab_size,
+                                                                          distortion=self._options.distortion,
+                                                                          num_reserved_ids=0,
+                                                                          unigrams=self._options.noiseDistrib,
+                                                                          name='nce_sampling')
+        logits, labels_nce = tf.nn._compute_sampled_logits(tf.transpose(self._output_weights),
+                                                           self._output_biases,
+                                                           tf.expand_dims(hidden[i], 0),
+                                                           tf.expand_dims(labels_ext[i], 0),
+                                                           self._options.k,
+                                                           self._options.vocab_size,
+                                                           num_true=1,
+                                                           sampled_values= (negative_samples,
+                                                                            true_expected_counts,
+                                                                            sampled_expected_counts),
+                                                           subtract_log_q= True,
+                                                           remove_accidental_hits = True,
+                                                           name='nce_loss_1')
+        sampled_losses = tf.nn.sigmoid_cross_entropy_with_logits(logits, labels_nce, name="nce_loss_2")
+        positive_score = sampled_losses[:,0]
+        true_loss = tf.reduce_mean(positive_score, name='true_mean')
+        acc_true_loss += true_loss
+        nce_score = tf.nn._sum_rows(sampled_losses)
+        nce_loss = tf.reduce_mean(nce_score, name='nce_mean')
+        acc_nce_loss += nce_loss
+      true_loss = tf.div(acc_true_loss, self._options.batch_size)
+      loss = tf.div(acc_nce_loss, self._options.batch_size)
+      """
     return loss, true_loss
 
   def contDepNce_loss(self, hidden, labels, currentNoiseDistrib):
@@ -138,6 +205,7 @@ class LM(object):
       print "Error: Bigram can't work with batched noise - noise is context-dependent!"
       sys.exit()
     else:
+      
       proba = tf.nn.log_softmax(tf.log(tf.cast(currentNoiseDistrib, dtype='float32')))
       samples = tf.multinomial(tf.log(tf.cast(currentNoiseDistrib, dtype='float32')),
                                self._options.k,
@@ -151,30 +219,72 @@ class LM(object):
       idx = tf.tile(idx, [1, self._options.k])  
       idx = tf.reshape(idx, [-1])       
       sampled_indexes = tf.transpose(tf.pack([idx, negative_samples]))
-      true_expected_counts = tf.scalar_mul(self._options.k, tf.exp(tf.expand_dims(tf.gather_nd(proba, labels_indexes), 1)))
+      #true_expected_counts = tf.scalar_mul(self._options.k, tf.exp(tf.expand_dims(tf.gather_nd(proba, labels_indexes), 1)))
+      true_expected_counts = tf.exp(tf.expand_dims(tf.gather_nd(proba, labels_indexes), 1))
       sampled_expected_counts = tf.scalar_mul(self._options.k, tf.exp(tf.gather_nd(proba, sampled_indexes)))
+      print(sampled_expected_counts.get_shape())
       
       logits, labels_nce = tfutils._compute_sampled_logits_by_batch(tf.transpose(self._output_weights),
-                                                                       self._output_biases,
-                                                                       hidden,
-                                                                       labels_ext,
-                                                                       self._options.k * self._options.batch_size,
-                                                                       self._options.k,
-                                                                       self._options.vocab_size,
-                                                                       num_true=1,
-                                                                       sampled_values= (negative_samples,
-                                                                                        true_expected_counts,
-                                                                                        sampled_expected_counts),
-                                                                       subtract_log_q= True,
-                                                                       remove_accidental_hits = True,
-                                                                       name='nce_loss_1_batched')
+                                                                    self._output_biases,
+                                                                    hidden,
+                                                                    labels_ext,
+                                                                    self._options.k * self._options.batch_size,
+                                                                    self._options.k,
+                                                                    self._options.vocab_size,
+                                                                    num_true=1,
+                                                                    sampled_values= (negative_samples,
+                                                                                     true_expected_counts,
+                                                                                     sampled_expected_counts),
+                                                                    # No option to remove accidental hits - would be very slow (need to loop over the batch) and is far less
+                                                                    #probable with a context-dependent noise
+                                                                    subtract_log_q= True,
+                                                                    name='nce_loss_1_batched')
 
       sampled_losses = tf.nn.sigmoid_cross_entropy_with_logits(logits, labels_nce, name="nce_loss_2_batched")
       positive_score = sampled_losses[:,0]
       true_loss = tf.reduce_mean(positive_score, name='true_mean')
       
-      nce_score = tf.nn._sum_rows(sampled_losses)
+      nce_score = tf.reduce_sum(sampled_losses, 1)
       loss = tf.reduce_mean(nce_score, name='nce_mean')                                                             
+      """
+      acc_true_loss = tf.constant(0.)
+      acc_nce_loss = tf.constant(0.)
+      for i in xrange(self._options.batch_size):
+        proba = tf.nn.log_softmax(tf.log(tf.cast(tf.expand_dims(currentNoiseDistrib[i], 0), dtype='float32')))
+        samples = tf.multinomial(tf.log(tf.cast(tf.expand_dims(currentNoiseDistrib[i], 0), dtype='float32')),
+                                 self._options.k,
+                                 name = 'nce_sampling')
+        negative_samples = tf.reshape(samples, [self._options.k])
+        
+        labels_indexes = tf.pack([0, labels[i]])
+        sampled_indexes= tf.transpose(tf.pack([tf.cast(tf.zeros([self._options.k]), dtype='int64'), negative_samples]))
+      
+        true_expected_counts = tf.exp(tf.gather_nd(proba, labels_indexes))
+        sampled_expected_counts = tf.scalar_mul(self._options.k, tf.exp(tf.gather_nd(proba, sampled_indexes)))
+
+        logits, labels_nce = tf.nn._compute_sampled_logits(tf.transpose(self._output_weights),
+                                                           self._output_biases,
+                                                           tf.expand_dims(hidden[i], 0),
+                                                           tf.expand_dims(labels_ext[i], 0),
+                                                           self._options.k,
+                                                           self._options.vocab_size,
+                                                           num_true=1,
+                                                           sampled_values= (negative_samples,
+                                                                            true_expected_counts,
+                                                                            sampled_expected_counts),
+                                                           subtract_log_q= True,
+                                                           remove_accidental_hits = True,
+                                                           name='nce_loss_1')
+        sampled_losses = tf.nn.sigmoid_cross_entropy_with_logits(logits, labels_nce, name="nce_loss_2")
+        positive_score = sampled_losses[:,0]
+        true_loss = tf.reduce_mean(positive_score, name='true_mean')
+        acc_true_loss += true_loss
+        nce_score = tf.nn._sum_rows(sampled_losses)
+        nce_loss = tf.reduce_mean(nce_score, name='nce_mean')
+        acc_nce_loss += nce_loss
+      true_loss = tf.div(acc_true_loss, self._options.batch_size)
+      loss = tf.div(acc_nce_loss, self._options.batch_size)
+      """
       return loss, true_loss
 
   def target_loss(self, hidden, labels):

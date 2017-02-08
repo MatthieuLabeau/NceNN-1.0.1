@@ -25,7 +25,6 @@ def _compute_sampled_logits_by_batch(weights,
                                      num_true,
                                      sampled_values,
                                      subtract_log_q=True,
-                                     remove_accidental_hits=False,
                                      partition_strategy="mod",
                                      name=None):
     
@@ -95,26 +94,27 @@ def _compute_sampled_logits_by_batch(weights,
         Insert batch_matmul instead of matmul here:
         """
         batch_size = array_ops.shape(inputs)[0]
-        # inputs from [batch_size, dim] to [batch_size, 1, dim]
-        inputs = array_ops.expand_dims(inputs, 1)
-        # sampled_w from [num_sampled = k * batch_size, dim] to [batch_size, dim, k]
+        # inputs from [batch_size, dim] to [batch_size, dim, 1]
+        inputs = array_ops.expand_dims(inputs, 2)
+        # sampled_w from [num_sampled = k * batch_size, dim] to [batch_size, k, dim]
         sampled_w = array_ops.reshape(
             sampled_w, array_ops.pack([batch_size, k, -1]))
-        sampled_w = array_ops.transpose(sampled_w, perm=[0, 2, 1])
+        # sampled_w = array_ops.transpose(sampled_w, perm=[0, 2, 1])
         # sampled_b from [num_sampled] to [batch_size, k]
         sampled_b = array_ops.reshape(
             sampled_b, array_ops.pack([batch_size, k]))
     
-        # batch_matmul yields [batch_size, 1, k] that we reduce to [batch_size, k] and add sampled_b
+        # batch_matmul yields [batch_size, k, 1] that we reduce to [batch_size, k] and add sampled_b
         sampled_logits = array_ops.squeeze(
             math_ops.batch_matmul(
-                inputs, sampled_w)
+                sampled_w, inputs)
             ) + sampled_b
         
         """
         sampled_logits = math_ops.matmul(
         inputs, sampled_w, transpose_b=True) + sampled_b
         """
+        
         """
         if remove_accidental_hits:               
             # Not implemented      
@@ -140,7 +140,8 @@ def _compute_sampled_logits_by_batch(weights,
                     acc_weights,
                     default_value=0.0,
                     validate_indices=False)
-        """            
+        """
+         
         if subtract_log_q:
             # Subtract log of Q(l), prior probability that l appears in sampled.
             true_logits -= math_ops.log(true_expected_count)

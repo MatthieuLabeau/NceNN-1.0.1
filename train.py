@@ -9,50 +9,74 @@ import tensorflow as tf
 
 from model.model import LM
 from model.runner import datarunner
-from model.reader import dataset
+from model.reader import dataset, datasetQ
 
 #Define the class for the model Options
 class Options(object):
   def __init__(self):
 
-    #Data
-    self.path = "./data/"
-    #self.path = "/vol/work2/labeau/lm/data/news/NceNN/"
-    self.n = 3
-    self.batch_size = 512
-    self.train_set = dataset(file_path=self.path, data_path='train', batch_size=self.batch_size, n=self.n + 1, vocab=None, threshold = 5)
-    self.test_set = dataset(file_path=self.path, data_path='test', batch_size=self.batch_size, n=self.n + 1, vocab=self.train_set.vocab)
-    self.vocab_size = len(self.train_set.vocab)
-    self.train_size = len(self.train_set.data)
-    self.test_size = len(self.test_set.data)
-    self.n_training_steps = self.train_size // self.batch_size
-    self.n_testing_steps = self.test_size // self.batch_size
-    self.training_sub = 1000
-
-    #Structural choices
-    self.emb_dim = 50
-    self.hidden_dim = 100
-
-    #Hyperparameters
-    self.learning_rate = 0.001
-    self.lr_decay = 0.9
-    self.epochs = 100
-    self.dropout = 0.5
-    self.reg = 0.00005
-
     #Objective: 'nce', 'target', 'norm', else MLE
-    self.obj = 'nce'
+    self.obj = 'target'
     #Noise: for nce or target: 'unigram', 'uniform', 'bigram'
     self.noise = 'bigram'
+    self.bigram_threshold = 10000
+
+    self.vocab_threshold = 100000
+
+    #Data
+    #self.path = "./data/"
+    #self.path = "/vol/work2/labeau/lm/data/en/ptb/"
+    self.path = "/vol/work2/labeau/lm/data/en/1BillionWordLMBenchmark/"
+    self.n = 6
+    self.batch_size = 512
+    #self.train_set = dataset(file_path=self.path, data_path='train', batch_size=self.batch_size, n=self.n + 1, vocab=None, threshold = 1)
+    #self.test_set = dataset(file_path=self.path, data_path='test', batch_size=self.batch_size, n=self.n + 1, vocab=self.train_set.vocab)
+    self.train_set = datasetQ(dir_path=self.path,
+                              data_file='train',
+                              vocab_file='train',
+                              bigram = (self.noise == 'bigram'),
+                              context_length = self.n,
+                              word_vocab_threshold = self.vocab_threshold,
+                              bigram_threshold = self.bigram_threshold)
+    self.test_set = datasetQ(dir_path=self.path,
+                             data_file='test.sampled',
+                             vocab_file='train',
+                             context_length = self.n,
+                             word_vocab_threshold = self.vocab_threshold)
+    self.vocab_size = len(self.train_set.word_to_id)
+    self.train_size = self.train_set.tot
+    self.test_size = self.test_set.tot
+    self.n_training_steps = self.train_size // self.batch_size
+    self.n_testing_steps = self.test_size // self.batch_size
+    self.training_sub = 50000
+
+    #Scores by frequency:
+    self.freqScores = True
+    self.ranges = [0, 100, 1000, 10000, self.vocab_size]
+    self.nb_ranges = int(self.freqScores)*(len(self.ranges) - 1) 
+
+    #Structural choices
+    self.emb_dim = 200
+    self.hidden_dim = 500
+
+    #Hyperparameters
+    self.batch_norm = True
+    self.learning_rate = 0.005
+    self.lr_decay = 0.9
+    self.epochs = 500
+    self.dropout = 0.5
+    self.reg = 0.0005
 
     #NCE/Target
-    if self.obj == 'nce' or self.obj == 'target':
+    if self.obj == 'nce' or self.obj == 'target' or self.obj == 'blackOut':
       self.k = 100
-      self.distortion = 1.0
+      self.distortion = 0.25
       self.unique = True
       self.batchedNoise = False
-      if not (self.noise == 'bigram'):
-        self.noiseDistrib = self.train_set.getNoiseDistrib(self.noise)
+      if (self.noise == 'unigram'):
+        self.noiseDistrib = self.train_set.unigram
+      elif (self.noise == 'uniform'):
+        self.noiseDistrib = self.train_set.uniform
 
     #Auto-normalization
     if self.obj == 'norm':
@@ -74,7 +98,7 @@ with tf.Graph().as_default(), tf.Session(
   opts = Options()
   print(opts.vocab_size)
 
-  train_runner = datarunner(opts.n, (opts.noise == 'bigram'), opts.vocab_size)
+  train_runner = datarunner(opts.n, (opts.noise == 'bigram'), opts.train_set.bigramThreshold)
   train_inputs = train_runner.get_inputs(opts.batch_size)
   print(train_inputs[0].get_shape())
   test_runner = datarunner(opts.n)
@@ -90,8 +114,8 @@ with tf.Graph().as_default(), tf.Session(
   print('Initialized !')
 
   tf.train.start_queue_runners(sess=session)
-  train_gen = opts.train_set.sampler((opts.noise == 'bigram'))
-  test_gen = opts.test_set.sampler()
+  train_gen = opts.train_set.sampler(opts.batch_size, (opts.noise == 'bigram'))
+  test_gen = opts.test_set.sampler(opts.batch_size)
   train_runner.start_threads(session, train_gen)
   test_runner.start_threads(session, test_gen)
 

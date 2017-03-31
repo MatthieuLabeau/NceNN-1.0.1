@@ -3,6 +3,38 @@ from __future__ import division
 from __future__ import print_function
 
 import math
+import tensorflow as tf
+
+def _compute_ranged_scores(scores,
+                           labels,
+                           ranges):
+    outputs = []
+    for i in range(len(ranges) - 1):
+        inBool = tf.logical_and(tf.greater_equal(labels, ranges[i]),tf.less(labels, ranges[i+1]))
+        inInt = tf.cast(inBool, 'float32')
+        length = tf.reduce_sum(inInt)
+        range_scores = tf.mul(inInt, scores)
+        outputs.append( tf.reduce_sum(range_scores) /tf.reduce_sum(length) )
+    return outputs
+
+class batch_norm(object):
+    def __init__(self, epsilon=1e-5, momentum = 0.1, name="batch_norm"):
+        with tf.variable_scope(name) as scope:
+            self.epsilon = epsilon
+            self.momentum = momentum
+            self.ema = tf.train.ExponentialMovingAverage(decay=self.momentum)
+            self.name=name
+
+    def __call__(self, x, train=True):
+        shape = x.get_shape().as_list()
+        with tf.variable_scope(self.name) as scope:
+            self.gamma = tf.get_variable("gamma", shape[1:],
+                                         initializer=tf.random_normal_initializer(1., 0.02))
+            self.beta = tf.get_variable("beta", shape[1:],
+                                        initializer=tf.constant_initializer(0.))
+            # Only normalize across the batch - implies shape change of scale and offset (gamma/beta)
+            mean, variance = tf.nn.moments(x, [0])
+            return tf.nn.batch_normalization(x, mean, variance, self.beta, self.gamma, self.epsilon)
 
 from tensorflow.python.framework import constant_op
 from tensorflow.python.framework import dtypes

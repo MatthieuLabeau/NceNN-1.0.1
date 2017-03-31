@@ -1,3 +1,3 @@
 # NceNN
 
-For Tensorflow 0.10.0
+For Tensorflow 1.0.1

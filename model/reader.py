@@ -175,7 +175,8 @@ class datasetQ():
     with open(self.path) as train_file:
       for line in train_file:
         seq = line.strip().split()
-        datalen += len(ngrams(seq, self.n))
+        #datalen += len(ngrams(seq, self.n))
+        datalen += sum(1 for _ in ngrams(seq, self.n))
     with open(self.len_data_path, 'w') as len_file:
       pickle.dump([datalen], len_file) 
 
@@ -217,7 +218,23 @@ class datasetQ():
       vec = np.array(self.uniform[:self.bigramThreshold])
     return vec
 
-  def sampler(self, batch_size, bigram=False):
+  """
+  def getBatchDistrib(self, batch, alpha = 1):
+    finalVec = np.zeros(self.bigramThreshold)
+    for word in batch:
+      if word < self.bigramThreshold:
+        dic = self.LM[word]
+        vec = np.zeros(self.bigramThreshold)
+        vec[dic.keys()] = dic.values()
+        vec += alpha
+        finalVec += vec
+      else:
+        vec = np.array(self.uniform[:self.bigramThreshold])
+        finalVec += vec
+      self.unigram = finalVec
+  """
+  
+  def sampler(self, batch_size, bigram=False, bigram_sum=False):
     with open(self.path) as _file:
       while True:
         to_be_read = list(islice(_file, batch_size))
@@ -229,7 +246,6 @@ class datasetQ():
         """
         n_grams = [ngrams(sent.strip().split(), self.n) for sent in to_be_read]
         word_train_tensor = np.array([[self.word_to_id.get(w, len(self.word_to_id)-1) for w in n_gram] for sent in n_grams for n_gram in sent], dtype = 'int32')
-
         x = word_train_tensor[:,:-1]
         y = word_train_tensor[:,-1]
         if bigram:

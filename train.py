@@ -16,9 +16,9 @@ class Options(object):
   def __init__(self):
 
     #Objective: 'nce', 'target', 'norm', else MLE
-    self.obj = 'target'
+    self.obj = 'nce'
     #Noise: for nce or target: 'unigram', 'uniform', 'bigram'
-    self.noise = 'bigram'
+    self.noise = 'unigram'
     self.bigram_threshold = 10000
 
     self.vocab_threshold = 100000
@@ -26,7 +26,7 @@ class Options(object):
     #Data
     #self.path = "./data/"
     #self.path = "/vol/work2/labeau/lm/data/en/ptb/"
-    self.path = "/vol/work2/labeau/lm/data/en/1BillionWordLMBenchmark/"
+    self.path = "/users/limsi_nmt/labeau/data/1BillionWordLMBenchmark/"
     self.n = 6
     self.batch_size = 512
     #self.train_set = dataset(file_path=self.path, data_path='train', batch_size=self.batch_size, n=self.n + 1, vocab=None, threshold = 1)
@@ -48,7 +48,7 @@ class Options(object):
     self.test_size = self.test_set.tot
     self.n_training_steps = self.train_size // self.batch_size
     self.n_testing_steps = self.test_size // self.batch_size
-    self.training_sub = 50000
+    self.training_sub = 500
 
     #Scores by frequency:
     self.freqScores = True
@@ -61,18 +61,18 @@ class Options(object):
 
     #Hyperparameters
     self.batch_norm = True
-    self.learning_rate = 0.005
+    self.learning_rate = 0.001
     self.lr_decay = 0.9
-    self.epochs = 500
+    self.epochs = 100
     self.dropout = 0.5
     self.reg = 0.0005
 
     #NCE/Target
     if self.obj == 'nce' or self.obj == 'target' or self.obj == 'blackOut':
-      self.k = 100
+      self.k = 500 
       self.distortion = 0.25
       self.unique = True
-      self.batchedNoise = False
+      self.batchedNoise = True
       if (self.noise == 'unigram'):
         self.noiseDistrib = self.train_set.unigram
       elif (self.noise == 'uniform'):

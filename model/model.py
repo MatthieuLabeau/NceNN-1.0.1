@@ -150,23 +150,29 @@ class LM(object):
                                                                     true_expected_counts,
                                                                     sampled_expected_counts),
                                                    subtract_log_q= True,
-                                                   remove_accidental_hits = True,
+                                                   remove_accidental_hits = False,
                                                    name='nce_loss_1')
 
       # If we use a mean bigram distribution over the batch, reweight logits according only to their own context
       if self._options.noise == "bigram":
-        sampled_logits = tf.slice(logits,
-                                  [0, 1],
-                                  [self._options.batch_size, self._options.k])
-        
-        proba = tf.nn.log_softmax(tf.log(self._currentNoiseDistrib), dim = 0)
+        log_counts = tf.log(tf.cast(self._currentNoiseDistrib, "float32"))
+        proba = log_counts - tf.log(tf.reduce_sum(tf.cast(self._currentNoiseDistrib, "float32"), 1, keep_dims=True))
+
         idx = tf.cast(tf.range(self._options.batch_size), dtype='int64')
         idx = tf.reshape(idx, [-1, 1])
         idx = tf.tile(idx, [1, self._options.k])
         idx = tf.reshape(idx, [-1])
-        sampled_indexes = tf.transpose(tf.pack([idx, negative_samples]))
-        logits -= tf.gather_nd(proba, sampled_indexes)
-        
+        idx_samples = tf.expand_dims(negative_samples, 0)
+        idx_samples = tf.tile(idx_samples, [self._options.batch_size, 1])
+        idx_samples = tf.reshape(idx_samples, [-1])
+        sampled_indexes = tf.transpose(tf.stack([idx, idx_samples]))
+
+        idx_labels = tf.cast(tf.range(self._options.batch_size), dtype='int64')
+        label_indexes = tf.transpose(tf.stack([idx_labels, labels]))
+
+        logits += tf.concat(axis=1, values=[tf.expand_dims(tf.gather_nd(proba, label_indexes), 1), tf.reshape(tf.gather_nd(proba, sampled_indexes), [self._options.batch_size, self._options.k]) ])
+        #logits += tf.concat(axis=1, values=[tf.zeros([self._options.batch_size, 1]), tf.reshape(tf.gather_nd(proba, sampled_indexes), [self._options.batch_size, self._options.k]) ])
+
       sampled_losses = tf.nn.sigmoid_cross_entropy_with_logits(logits=logits, labels=labels_nce, name="nce_loss_2")
       positive_score = sampled_losses[:,0]
       true_loss = tf.reduce_mean(positive_score, name='true_mean')
@@ -310,7 +316,8 @@ class LM(object):
       self._monitored.append(self._noNoiseLoss)
     if self._options.obj == 'blackOut' and self._training:
       self._monitored.append(self._noiseRatio)
-
+    self._eval = tf.no_op()
+      
   def call(self, results_file = None):
     start_time = time.time()
     average_score = np.zeros(1 + self._options.nb_ranges)
@@ -328,7 +335,7 @@ class LM(object):
       call = "Training:"
     else:
       n_steps = self._options.n_testing_steps 
-      op = tf.no_op()
+      op = self._eval
       display = n_steps-1
       call = "Testing:"
 

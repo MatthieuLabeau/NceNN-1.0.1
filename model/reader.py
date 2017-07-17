@@ -202,38 +202,20 @@ class datasetQ():
       for line in train_file:
         seq = [bigram_voc.get(word, len(bigram_voc)-1) for word in line.strip().split()]
         data.extend(ngrams(seq, 2))
-    LM = collections.defaultdict(partial(collections.defaultdict, int))
+    LM = np.zeros([self.bigramThreshold, self.bigramThreshold], 'int32') #collections.defaultdict(partial(collections.defaultdict, int))
     for bigram in data:
-      LM[bigram[0]][bigram[1]] += 1
+      LM[bigram[0],bigram[1]] += 1
+    LM[self.bigramThreshold - 1,:] = np.ones(self.bigramThreshold, 'int32')
     with open(self.bigram_data_path, 'w') as bigram_file:
       pickle.dump([LM], bigram_file)
 
-  def getWordDistrib(self, word, alpha = 1):
-    if word < self.bigramThreshold:
-      dic = self.LM[word]
-      vec = np.zeros(self.bigramThreshold)
-      vec[dic.keys()] = dic.values()
-      vec += alpha
-    else:
-      vec = np.array(self.uniform[:self.bigramThreshold])
-    return vec
-
-  """
   def getBatchDistrib(self, batch, alpha = 1):
-    finalVec = np.zeros(self.bigramThreshold)
-    for word in batch:
-      if word < self.bigramThreshold:
-        dic = self.LM[word]
-        vec = np.zeros(self.bigramThreshold)
-        vec[dic.keys()] = dic.values()
-        vec += alpha
-        finalVec += vec
-      else:
-        vec = np.array(self.uniform[:self.bigramThreshold])
-        finalVec += vec
-      self.unigram = finalVec
-  """
-  
+    counts = np.array(self.unigram)[batch]
+    ratios = counts / np.sum(counts)
+    batch = np.minimum(batch, self.bigramThreshold - 1)
+    return np.ceil((self.LM[batch, :] + 1) * np.expand_dims(ratios, 1)).astype('int64')
+    #return self.LM[batch, :]
+    
   def sampler(self, batch_size, bigram=False, bigram_sum=False):
     with open(self.path) as _file:
       while True:
@@ -249,6 +231,6 @@ class datasetQ():
         x = word_train_tensor[:,:-1]
         y = word_train_tensor[:,-1]
         if bigram:
-          yield x, y, np.array([self.getWordDistrib(context[-1]) for context in x], dtype='int64')
+          yield x, y, self.getBatchDistrib(x[:,-1])
         else:
           yield x, y 

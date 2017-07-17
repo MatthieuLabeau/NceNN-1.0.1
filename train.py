@@ -18,7 +18,7 @@ class Options(object):
     #Objective: 'nce', 'target', 'norm', else MLE
     self.obj = 'nce'
     #Noise: for nce or target: 'unigram', 'uniform', 'bigram'
-    self.noise = 'unigram'
+    self.noise = 'bigram'
     self.bigram_threshold = 10000
 
     self.vocab_threshold = 100000
@@ -70,12 +70,12 @@ class Options(object):
     #NCE/Target
     if self.obj == 'nce' or self.obj == 'target' or self.obj == 'blackOut':
       self.k = 500 
-      self.distortion = 0.25
+      self.distortion = 1.0
       self.unique = True
       self.batchedNoise = True
       if (self.noise == 'unigram'):
         self.noiseDistrib = self.train_set.unigram
-      elif (self.noise == 'uniform'):
+      else: #elif (self.noise == 'uniform'):
         self.noiseDistrib = self.train_set.uniform
 
     #Auto-normalization
